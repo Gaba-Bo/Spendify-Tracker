@@ -1,1 +1,325 @@
-a
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Expense Tracker</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background:#f4f6f8;
+  margin:0;
+  padding:16px;
+}
+h1 { text-align:center; margin-bottom:8px; }
+
+.card {
+  background:#fff;
+  padding:16px;
+  border-radius:12px;
+  margin-bottom:16px;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+
+label { font-weight:bold; margin-top:12px; display:block; }
+
+input, select, button {
+  width:100%;
+  padding:12px;
+  margin-top:6px;
+  font-size:16px;
+  border-radius:8px;
+  border:1px solid #ccc;
+}
+
+button { background:#4f46e5; color:#fff; border:none; margin-top:16px; }
+button.secondary { background:#374151; }
+button.danger { background:#dc2626; }
+button.warning { background:#d97706; }
+button.success { background:#059669; }
+
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.small-btn { padding:6px 10px; font-size:14px; }
+
+ul { list-style:none; padding:0; }
+li { background:#f9fafb; padding:12px; border-radius:8px; margin-bottom:10px; }
+
+.actions { margin-top:8px; display:flex; gap:6px; }
+
+/* Sticky totals */
+#totalsBar {
+  position:sticky;
+  top:0;
+  background:#111827;
+  color:#fff;
+  padding:12px;
+  border-radius:10px;
+  margin-bottom:16px;
+  z-index:10;
+}
+
+/* Login */
+#loginOverlay {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,.6);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:999;
+}
+#loginBox {
+  background:#fff;
+  padding:20px;
+  border-radius:12px;
+  max-width:300px;
+  width:100%;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="loginOverlay">
+  <div id="loginBox">
+    <h2>Who are you?</h2>
+    <select id="loginName">
+      <option value="">Select</option>
+      <option>Shekar</option>
+      <option>Bhavana</option>
+      <option>Bhavani</option>
+      <option>Shivani</option>
+    </select>
+    <button onclick="login()">Continue</button>
+  </div>
+</div>
+
+<h1>Family Expense Tracker</h1>
+<p><b>Today:</b> <span id="todayDate"></span></p>
+
+<!-- TOTALS -->
+<div id="totalsBar">
+  Total ₹ <span id="total">0</span> |
+  Today ₹ <span id="todayTotal">0</span> |
+  Month ₹ <span id="monthTotal">0</span>
+</div>
+
+<!-- ADD / EDIT -->
+<div class="card">
+  <div class="row">
+    <div><b>Logged in as:</b> <span id="currentUser"></span></div>
+    <button class="secondary small-btn" onclick="switchUser()">Switch</button>
+  </div>
+
+  <label>Expense Date</label>
+  <input type="date" id="expenseDate">
+
+  <label>Amount</label>
+  <input type="number" id="amount">
+
+  <label>Note</label>
+  <input type="text" id="note">
+
+  <label>Purpose</label>
+  <input type="text" id="purpose">
+
+  <label>Mode of Payment</label>
+  <select id="paymentMode">
+    <option value="">Select</option>
+    <option>Cash</option>
+    <option>Google Pay</option>
+    <option>Phone Pay</option>
+    <option>UBI</option>
+    <option>SBI</option>
+    <option>PNB</option>
+    <option>HDFC</option>
+    <option>Indian Bank</option>
+  </select>
+
+  <button id="saveBtn" onclick="saveExpense()">Add Expense</button>
+  <button id="cancelEditBtn" class="warning" style="display:none" onclick="cancelEdit()">Cancel Edit</button>
+</div>
+
+<!-- EXPORT -->
+<div class="card">
+  <h3>Export</h3>
+  <label>Select Date</label>
+  <input type="date" id="exportDate">
+  <div class="row">
+    <button class="success small-btn" onclick="exportSelectedDate()">Export Selected Date</button>
+    <button class="success small-btn" onclick="exportThisMonth()">Export This Month</button>
+  </div>
+  <button class="success" onclick="exportAll()">Export All</button>
+</div>
+
+<!-- ALL EXPENSES -->
+<div class="card">
+  <h3>All Expenses (Last 7 Days)</h3>
+  <ul id="expenseList"></ul>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAUJlIJsjvh69jAk98AJfhOCMOqT4ToWpk",
+  authDomain: "spendify-tracker.firebaseapp.com",
+  databaseURL: "https://spendify-tracker-default-rtdb.firebaseio.com",
+  projectId: "spendify-tracker",
+  storageBucket: "spendify-tracker.firebasestorage.app",
+  messagingSenderId: "461321667516",
+  appId: "1:461321667516:web:559f5644d1fb7b6ed161b9"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const ref = db.ref("expenses");
+
+/* DATE */
+function todayStr() {
+  return new Date().toISOString().split("T")[0];
+}
+document.getElementById("todayDate").innerText = todayStr();
+document.getElementById("expenseDate").value = todayStr();
+document.getElementById("exportDate").value = todayStr();
+
+/* LOGIN */
+let currentUser = localStorage.getItem("user");
+if (currentUser) {
+  document.getElementById("loginOverlay").style.display = "none";
+  document.getElementById("currentUser").innerText = currentUser;
+}
+
+function login() {
+  const name = document.getElementById("loginName").value;
+  if (!name) return alert("Select name");
+  localStorage.setItem("user", name);
+  currentUser = name;
+  document.getElementById("currentUser").innerText = name;
+  document.getElementById("loginOverlay").style.display = "none";
+}
+
+function switchUser() {
+  localStorage.removeItem("user");
+  location.reload();
+}
+
+/* SAVE / UPDATE */
+let editId = null;
+
+function saveExpense() {
+  if (!amount.value || !expenseDate.value || !paymentMode.value) {
+    alert("Fill amount, date and payment mode");
+    return;
+  }
+
+  const data = {
+    person: currentUser,
+    amount: Number(amount.value),
+    note: note.value,
+    purpose: purpose.value,
+    paymentMode: paymentMode.value,
+    date: expenseDate.value,
+    month: expenseDate.value.slice(0,7),
+    timestamp: Date.now()
+  };
+
+  editId ? ref.child(editId).update(data) : ref.push(data);
+  cancelEdit();
+}
+
+function cancelEdit() {
+  editId = null;
+  amount.value = "";
+  note.value = "";
+  purpose.value = "";
+  paymentMode.value = "";
+  expenseDate.value = todayStr();
+  saveBtn.innerText = "Add Expense";
+  cancelEditBtn.style.display = "none";
+}
+
+/* EXPORT */
+function makeCSV(rows, filename) {
+  let csv = "Date,Name,Amount,Note,Purpose,Mode of Payment\n";
+  rows.forEach(e => {
+    csv += `${e.date},${e.person},${e.amount},"${e.note||""}","${e.purpose||""}",${e.paymentMode||""}\n`;
+  });
+  const blob = new Blob([csv], { type:"text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+function exportAll() {
+  ref.once("value", s => makeCSV(Object.values(s.val()||{}), "All_Expenses.csv"));
+}
+function exportSelectedDate() {
+  const d = exportDate.value;
+  ref.once("value", s => makeCSV(Object.values(s.val()||{}).filter(e=>e.date===d), `Expenses_${d}.csv`));
+}
+function exportThisMonth() {
+  const m = todayStr().slice(0,7);
+  ref.once("value", s => makeCSV(Object.values(s.val()||{}).filter(e=>e.month===m), `Expenses_${m}.csv`));
+}
+
+/* LISTENER */
+ref.on("value", snap => {
+  const data = snap.val();
+  if (!data) return;
+
+  const today = todayStr();
+  const thisMonth = today.slice(0,7);
+  const sevenDaysAgo = new Date(Date.now() - 7*24*60*60*1000);
+
+  let totalSum = 0, todaySum = 0, monthSum = 0;
+  expenseList.innerHTML = "";
+
+  Object.entries(data).forEach(([id,e]) => {
+    totalSum += e.amount;
+    if (e.date === today) todaySum += e.amount;
+    if (e.month === thisMonth) monthSum += e.amount;
+    if (new Date(e.date) < sevenDaysAgo) return;
+
+    expenseList.innerHTML += `
+      <li>
+        <b>${e.date}</b> — ${e.person} — ₹${e.amount}<br>
+        ${e.note||"No note"} | ${e.purpose||"No purpose"} | ${e.paymentMode}
+        <div class="actions">
+          <button class="small-btn success" onclick="editExpense('${id}')">Edit</button>
+          <button class="small-btn danger" onclick="deleteExpense('${id}')">Delete</button>
+        </div>
+      </li>`;
+  });
+
+  document.getElementById("total").innerText = totalSum;
+  document.getElementById("todayTotal").innerText = todaySum;
+  document.getElementById("monthTotal").innerText = monthSum;
+});
+
+function editExpense(id) {
+  ref.child(id).once("value", s => {
+    const e = s.val();
+    editId = id;
+    amount.value = e.amount;
+    note.value = e.note;
+    purpose.value = e.purpose;
+    paymentMode.value = e.paymentMode;
+    expenseDate.value = e.date;
+    saveBtn.innerText = "Update Expense";
+    cancelEditBtn.style.display = "block";
+    window.scrollTo({top:0, behavior:"smooth"});
+  });
+}
+
+function deleteExpense(id) {
+  if (confirm("Delete this expense?")) ref.child(id).remove();
+}
+</script>
+
+</body>
+</html>
